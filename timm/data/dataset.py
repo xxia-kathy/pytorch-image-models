@@ -6,6 +6,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from fvcore.common.file_io import PathManager
 import torch.utils.data as data
 
 import os
@@ -44,6 +45,20 @@ def find_images_and_targets(folder, types=IMG_EXTENSIONS, class_to_idx=None, lea
         images_and_targets = sorted(images_and_targets, key=lambda k: natural_key(k[0]))
     return images_and_targets, class_to_idx
 
+def parse_input_csv(train_file, class_to_idx=None):
+    labels = []
+    filenames = []
+    
+    with PathManager.open(train_file, "r") as f:
+        for clip_idx, path_label in enumerate(f.read().splitlines()):
+            path_label_split = path_label.split(",")
+            filenames.append(path_label_split[0])
+            for i in range(1, len(path_label_split)):
+                    labels.append(path_label_split[i])
+
+    images_and_targets = [(f, class_to_idx[l]) for f, l in zip(filenames, labels) if l in class_to_idx]
+    return images_and_targets, class_to_idx
+
 
 def load_class_map(filename, root=''):
     class_map_path = filename
@@ -57,6 +72,59 @@ def load_class_map(filename, root=''):
     else:
         assert False, 'Unsupported class map extension'
     return class_to_idx
+
+class DatasetCustom(data.Dataset):
+
+    def __init__(
+            self,
+            root,
+            train_file,
+            load_bytes=False,
+            transform=None,
+            class_map=''):
+
+        class_to_idx = None
+        if class_map:
+            class_to_idx = load_class_map(class_map, root)
+        images, class_to_idx = parse_input_csv(train_file, class_to_idx=class_to_idx)
+        if len(images) == 0:
+            raise RuntimeError(f'Found 0 images in subfolders of {root}. '
+                               f'Supported image extensions are {", ".join(IMG_EXTENSIONS)}')
+        self.root = root
+        self.samples = images
+        self.imgs = self.samples  # torchvision ImageFolder compat
+        self.class_to_idx = class_to_idx
+        self.load_bytes = load_bytes
+        self.transform = transform
+
+    def __getitem__(self, index):
+        path, target = self.samples[index]
+        img = open(path, 'rb').read() if self.load_bytes else Image.open(path).convert('RGB')
+        if self.transform is not None:
+            img = self.transform(img)
+        if target is None:
+            target = torch.zeros(1).long()
+        return img, target
+
+    def __len__(self):
+        return len(self.samples)
+
+    def filename(self, index, basename=False, absolute=False):
+        filename = self.samples[index][0]
+        if basename:
+            filename = os.path.basename(filename)
+        elif not absolute:
+            filename = os.path.relpath(filename, self.root)
+        return filename
+
+    def filenames(self, basename=False, absolute=False):
+        fn = lambda x: x
+        if basename:
+            fn = os.path.basename
+        elif not absolute:
+            fn = lambda x: os.path.relpath(x, self.root)
+        return [fn(x[0]) for x in self.samples]
+
 
 
 class Dataset(data.Dataset):

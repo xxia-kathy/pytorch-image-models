@@ -28,7 +28,7 @@ import torch.nn as nn
 import torchvision.utils
 from torch.nn.parallel import DistributedDataParallel as NativeDDP
 
-from timm.data import Dataset, create_loader, resolve_data_config, Mixup, FastCollateMixup, AugMixDataset
+from timm.data import DatasetCustom, create_loader, resolve_data_config, Mixup, FastCollateMixup, AugMixDataset
 from timm.models import create_model, resume_checkpoint, convert_splitbn_model
 from timm.utils import *
 from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy, JsdCrossEntropy
@@ -438,11 +438,13 @@ def main():
     if args.local_rank == 0:
         _logger.info('Scheduled epochs: {}'.format(num_epochs))
 
-    train_dir = os.path.join(args.data, 'train')
+    train_dir = args.data
     if not os.path.exists(train_dir):
         _logger.error('Training folder does not exist at: {}'.format(train_dir))
         exit(1)
-    dataset_train = Dataset(train_dir)
+    
+    csv_file = os.path.join(train_dir, "train.csv")
+    dataset_train = DatasetCustom(root=train_dir, train_file=csv_file, class_map="labels.txt")
 
     collate_fn = None
     mixup_fn = None
@@ -492,13 +494,16 @@ def main():
         use_multi_epochs_loader=args.use_multi_epochs_loader
     )
 
-    eval_dir = os.path.join(args.data, 'val')
-    if not os.path.isdir(eval_dir):
-        eval_dir = os.path.join(args.data, 'validation')
-        if not os.path.isdir(eval_dir):
-            _logger.error('Validation folder does not exist at: {}'.format(eval_dir))
-            exit(1)
-    dataset_eval = Dataset(eval_dir)
+    # eval_dir = os.path.join(args.data, 'val')
+    # if not os.path.isdir(eval_dir):
+    #     eval_dir = args.data, 'validation')
+    #     if not os.path.isdir(eval_dir):
+    #         _logger.error('Validation folder does not exist at: {}'.format(eval_dir))
+    #         exit(1)
+
+    eval_csv_file = os.path.join(train_dir, "val.csv")
+
+    dataset_eval = DatasetCustom(root=train_dir, train_file=eval_csv_file, class_map="labels.txt")
 
     loader_eval = create_loader(
         dataset_eval,
@@ -724,7 +729,7 @@ def validate(model, loader, loss_fn, args, amp_autocast=suppress, log_suffix='')
                 target = target[0:target.size(0):reduce_factor]
 
             loss = loss_fn(output, target)
-            acc1, acc5 = accuracy(output, target, topk=(1, 5))
+            acc1, acc5 = accuracy(output, target, topk=(1, 2))
 
             if args.distributed:
                 reduced_loss = reduce_tensor(loss.data, args.world_size)
