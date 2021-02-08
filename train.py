@@ -526,8 +526,8 @@ def main():
     elif mixup_active:
         # smoothing is handled with mixup target transform
         train_loss_fn = SoftTargetCrossEntropy().cuda()
-    elif args.smoothing:
-        train_loss_fn = LabelSmoothingCrossEntropy(smoothing=args.smoothing).cuda()
+    # elif args.smoothing:
+    #     train_loss_fn = LabelSmoothingCrossEntropy(smoothing=args.smoothing).cuda()
     else:
         train_loss_fn = nn.CrossEntropyLoss().cuda()
     validate_loss_fn = nn.CrossEntropyLoss().cuda()
