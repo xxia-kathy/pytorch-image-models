@@ -20,7 +20,7 @@ from collections import OrderedDict
 from contextlib import suppress
 
 from timm.models import create_model, apply_test_time_pool, load_checkpoint, is_model, list_models
-from timm.data import Dataset, DatasetTar, create_loader, resolve_data_config, RealLabelsImagenet
+from timm.data import Dataset, DatasetTar, DatasetCustom, create_loader, resolve_data_config, RealLabelsImagenet
 from timm.utils import accuracy, AverageMeter, natural_key, setup_default_logging, set_jit_legacy
 
 has_apex = False
@@ -156,11 +156,11 @@ def validate(args):
         model = torch.nn.DataParallel(model, device_ids=list(range(args.num_gpu)))
 
     criterion = nn.CrossEntropyLoss().cuda()
-
+    test_csv_file = os.path.join(args.data, "test.csv")
     if os.path.splitext(args.data)[1] == '.tar' and os.path.isfile(args.data):
         dataset = DatasetTar(args.data, load_bytes=args.tf_preprocessing, class_map=args.class_map)
     else:
-        dataset = Dataset(args.data, load_bytes=args.tf_preprocessing, class_map=args.class_map)
+        dataset = DatasetCustom(root=args.data, train_file=test_csv_file, class_map=args.class_map)
 
     if args.valid_labels:
         with open(args.valid_labels, 'r') as f:
