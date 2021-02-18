@@ -12,10 +12,13 @@ import logging
 import numpy as np
 import torch
 
+from fvcore.common.file_io import PathManager
+
 from timm.models import create_model, apply_test_time_pool
-from timm.data import Dataset, create_loader, resolve_data_config
+from timm.data import Dataset, DatasetCustom, create_loader, resolve_data_config
 from timm.utils import AverageMeter, setup_default_logging
 
+import pickle
 torch.backends.cudnn.benchmark = True
 _logger = logging.getLogger('inference')
 
@@ -53,7 +56,8 @@ parser.add_argument('--no-test-pool', dest='no_test_pool', action='store_true',
                     help='disable test time pool')
 parser.add_argument('--topk', default=5, type=int,
                     metavar='N', help='Top-k to output to CSV')
-
+parser.add_argument('--class-map', default='', type=str, metavar='FILENAME',
+                    help='path to class to idx mapping file (default: "")')
 
 def main():
     setup_default_logging()
@@ -80,8 +84,11 @@ def main():
     else:
         model = model.cuda()
 
+    test_csv_file = os.path.join(args.data, "test.csv")
+    dataset = DatasetCustom(root=args.data, train_file=test_csv_file, class_map=args.class_map)
+
     loader = create_loader(
-        Dataset(args.data),
+        dataset,
         input_size=config['input_size'],
         batch_size=args.batch_size,
         use_prefetcher=True,
@@ -97,12 +104,16 @@ def main():
     batch_time = AverageMeter()
     end = time.time()
     topk_ids = []
+    all_preds = []
+    all_labels = []
     with torch.no_grad():
         for batch_idx, (input, _) in enumerate(loader):
             input = input.cuda()
             labels = model(input)
             topk = labels.topk(k)[1]
             topk_ids.append(topk.cpu().numpy())
+            all_preds.append(topk_ids[0])
+            # all_labels.append(true_label.cpu().numpy())
 
             # measure elapsed time
             batch_time.update(time.time() - end)
@@ -114,12 +125,13 @@ def main():
 
     topk_ids = np.concatenate(topk_ids, axis=0).squeeze()
 
-    with open(os.path.join(args.output_dir, './topk_ids.csv'), 'w') as out_file:
+    with open(os.path.join(args.output_dir, 'topk_ids.csv'), 'w') as out_file:
         filenames = loader.dataset.filenames(basename=True)
         for filename, label in zip(filenames, topk_ids):
             out_file.write('{0},{1},{2},{3},{4},{5}\n'.format(
                 filename, label[0], label[1], label[2], label[3], label[4]))
-
-
+    with PathManager.open(os.path.join(args.output_dir, 'true_predicted.csv'), 'wb') as out_file:
+        pickle.dump([all_preds, all_labels], out_file)
+    
 if __name__ == '__main__':
     main()
